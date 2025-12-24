@@ -309,6 +309,7 @@
     incidents: Array.isArray(state.incidents) ? state.incidents : [],
     drafts: Array.isArray(state.drafts) ? state.drafts : [],
     business_units: Array.isArray(state.business_units) && state.business_units.length ? state.business_units : BUSINESS_UNITS,
+    history: [],
     filters: state.filters || { severity: 'ALL', unit: 'ALL', status: 'ALL', search: '' }
   });
 
@@ -434,6 +435,7 @@
         status: draft ? 'DRAFT' : payload.status || 'INVESTIGATING',
         description: payload.description,
         remediation_actions: payload.remediation_actions || '',
+        remediation_actions_list: payload.remediation_actions_list || (payload.remediation_actions ? [payload.remediation_actions] : []),
         lessons_learned: payload.lessons_learned || '',
         preventive_measures: payload.preventive_measures || '',
         improvements: payload.improvements || '',
@@ -453,6 +455,8 @@
         timeline: payload.timeline || [],
         activities: payload.activities || [],
         notes: payload.notes || [],
+        history: payload.history || [],
+        compliance_history: payload.compliance_history || [],
         pdpc_status: payload.pdpc_status || (payload.pdpc_notification_required ? 'YES' : 'NO'),
         pdpc_notified_date: payload.pdpc_notified_date || null,
         dpo_notified_date: payload.dpo_notified_date || null
@@ -494,7 +498,17 @@
     updateIncident(id, updates) {
       const updated = this.state.incidents.map((inc) => {
         if (inc.id !== id) return inc;
-        const merged = this.withResponseTime({ ...inc, ...updates, updated_at: nowIso() });
+        const diffKeys = Object.keys(updates || {}).filter((k) => k !== 'updated_at' && k !== 'history' && JSON.stringify(inc[k]) !== JSON.stringify(updates[k]));
+        const readable = (v) => {
+          if (Array.isArray(v)) return `[${v.length} items]`;
+          if (v && typeof v === 'object') return JSON.stringify(v);
+          return v ?? 'null';
+        };
+        const historyEntry = diffKeys.length
+          ? { date: nowIso(), text: diffKeys.map((k) => `${k}: ${readable(inc[k])} -> ${readable(updates[k])}`).join(' | ') }
+          : null;
+        const history = historyEntry ? [...(inc.history || []), historyEntry] : (inc.history || []);
+        const merged = this.withResponseTime({ ...inc, ...updates, history, updated_at: nowIso() });
         return merged;
       });
       this.state.incidents = updated;
@@ -524,6 +538,7 @@
   const store = new Store();
   let currentDetailId = null;
   let newIncidentExtras = { attachments: [], timeline: [], activities: [] };
+  let currentEditIncidentId = null;
 
   const normalizeAttachment = (a) => {
     if (!a) return null;
@@ -973,7 +988,15 @@ Data Types: ${incident.data_types.join(', ')}
         <div class="wire-block">
           <div class="wire-title">Remediation Actions</div>
           <div class="wire-list">
-            ${incident.remediation_actions ? `<div class="wire-item">• ${incident.remediation_actions}</div>` : '<div class="detail-subtle">No remediation captured.</div>'}
+            ${incident.remediation_actions_list && incident.remediation_actions_list.length
+              ? incident.remediation_actions_list.map((r) => `<div class="wire-item">• ${r}</div>`).join('')
+              : incident.remediation_actions
+                ? `<div class="wire-item">• ${incident.remediation_actions}</div>`
+                : '<div class="detail-subtle">No remediation captured.</div>'}
+          </div>
+          <div class="inline-form" id="remediation-inline-form">
+            <input id="detail-remediation-text" placeholder="Add remediation action" />
+            <button class="btn ghost sm" id="detail-add-remediation">Add</button>
           </div>
         </div>
 
@@ -1002,6 +1025,46 @@ DPO Guidance Issued: ${incident.dpo_guidance_issued ? 'Yes' : 'No'} ${incident.d
 Guidance: ${incident.lessons_learned || 'Not documented.'}
 Preventive Measures: ${incident.preventive_measures || 'Not documented.'}
 Improvements: ${incident.improvements || 'Not documented.'}
+          </div>
+          <div class="compliance-controls">
+            <div class="control-group">
+              <label>Status</label>
+              <select id="detail-pdpc-status" class="sm-input">
+                <option value="YES" ${incident.pdpc_status==='YES'?'selected':''}>YES</option>
+                <option value="NO" ${incident.pdpc_status==='NO'?'selected':''}>NO</option>
+                <option value="UNDER_REVIEW" ${incident.pdpc_status==='UNDER_REVIEW'?'selected':''}>UNDER REVIEW</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label>Reviewer (for Under Review)</label>
+              <input id="detail-review-person" class="sm-input" placeholder="Reviewer" value="${incident.pdpc_review_person || ''}" />
+            </div>
+            <div class="control-group">
+              <label><input type="checkbox" id="detail-pdpc-notified" ${incident.pdpc_notified?'checked':''}/> PDPC Notified</label>
+              <input id="detail-pdpc-person" class="sm-input" placeholder="PDPC contact" value="${incident.pdpc_notified_person || ''}" />
+            </div>
+            <div class="control-group">
+              <label><input type="checkbox" id="detail-dpo-notified" ${incident.dpo_guidance_issued?'checked':''}/> DPO Notified</label>
+              <input id="detail-dpo-person" class="sm-input" placeholder="DPO contact" value="${incident.dpo_notified_person || ''}" />
+            </div>
+            <div class="control-group">
+              <button class="btn ghost" id="detail-update-compliance">Update</button>
+            </div>
+          </div>
+          <div class="wire-list">
+            <div class="wire-title">Compliance History</div>
+            ${incident.compliance_history && incident.compliance_history.length
+              ? incident.compliance_history.map((h) => `<div class="wire-item">${formatDate(h.date)} - ${h.text}</div>`).join('')
+              : '<div class="detail-subtle">No compliance changes logged.</div>'}
+          </div>
+          <div class="wire-line"></div>
+          <div class="wire-block">
+            <div class="wire-title">Change History</div>
+            <div class="wire-list">
+              ${incident.history && incident.history.length
+                ? incident.history.map((h) => `<div class="wire-item">${formatDate(h.date.slice(0,10))} ${h.date.slice(11,16)} - ${h.text}</div>`).join('')
+                : '<div class="detail-subtle">No edits recorded yet.</div>'}
+            </div>
           </div>
         </div>
 
@@ -1093,6 +1156,16 @@ Improvements: ${incident.improvements || 'Not documented.'}
         }
       };
     }
+    const addRemediation = document.getElementById('detail-add-remediation');
+    if (addRemediation) {
+      addRemediation.onclick = () => {
+        const text = document.getElementById('detail-remediation-text').value;
+        if (text.trim()) {
+          store.updateIncident(id, { remediation_actions_list: [...(incident.remediation_actions_list || []), text.trim()] });
+          renderIncidentDetail(id);
+        }
+      };
+    }
     const addActivity = document.getElementById('detail-add-activity');
     if (addActivity) {
       addActivity.onclick = () => {
@@ -1115,6 +1188,47 @@ Improvements: ${incident.improvements || 'Not documented.'}
           store.updateIncident(id, { follow_up_actions: [...(incident.follow_up_actions || []), text.trim()] });
           renderIncidentDetail(id);
         }
+      };
+    }
+    const updateCompliance = document.getElementById('detail-update-compliance');
+    if (updateCompliance) {
+      updateCompliance.onclick = () => {
+        const statusVal = document.getElementById('detail-pdpc-status').value;
+        const reviewPerson = document.getElementById('detail-review-person').value.trim();
+        const pdpcNot = document.getElementById('detail-pdpc-notified').checked;
+        const pdpcPerson = document.getElementById('detail-pdpc-person').value.trim();
+        const dpoNot = document.getElementById('detail-dpo-notified').checked;
+        const dpoPerson = document.getElementById('detail-dpo-person').value.trim();
+        if (statusVal === 'UNDER_REVIEW' && !reviewPerson) { alert('Reviewer required for UNDER REVIEW.'); return; }
+        if (pdpcNot && !pdpcPerson) { alert('PDPC contact required when notified.'); return; }
+        if (dpoNot && !dpoPerson) { alert('DPO contact required when notified.'); return; }
+        const historyEntry = `${statusVal} | PDPC Notified: ${pdpcNot ? 'Yes' : 'No'}${pdpcPerson ? ` (${pdpcPerson})` : ''} | DPO Notified: ${dpoNot ? 'Yes' : 'No'}${dpoPerson ? ` (${dpoPerson})` : ''}`;
+        store.updateIncident(id, {
+          pdpc_status: statusVal,
+          pdpc_review_person: reviewPerson,
+          pdpc_notified: pdpcNot,
+          pdpc_notified_person: pdpcPerson,
+          dpo_guidance_issued: dpoNot,
+          dpo_notified_person: dpoPerson,
+          compliance_history: [...(incident.compliance_history || []), { date: new Date().toISOString().slice(0,10), text: historyEntry }]
+        });
+        renderIncidentDetail(id);
+        renderDashboard();
+        renderCompliance();
+        renderRegistry();
+      };
+    }
+    const editBtn = document.getElementById('edit-detail');
+    if (editBtn) {
+      editBtn.onclick = () => {
+        currentEditIncidentId = id;
+        newIncidentExtras = {
+          attachments: [...(incident.attachments || [])],
+          timeline: [...(incident.timeline || [])],
+          activities: [...(incident.activities || [])]
+        };
+        setActiveView('new-incident-view');
+        renderNewIncidentForm();
       };
     }
   }
@@ -1238,6 +1352,7 @@ Improvements: ${incident.improvements || 'Not documented.'}
     const extras = newIncidentExtras;
     const defaultDataTypes = DATA_TYPES.slice(0, 3);
     const units = store.listUnits();
+    const existing = currentEditIncidentId ? store.getIncident(currentEditIncidentId) : null;
     const checkbox = (label, checked = false) => `
       <label class="checkbox">
         <input type="checkbox" name="data_type" value="${label}" ${checked ? 'checked' : ''} />
@@ -1254,23 +1369,23 @@ Improvements: ${incident.improvements || 'Not documented.'}
           <div class="wire-grid">
             <div class="form-group">
               <label>Incident Date *</label>
-              <input id="incident_date" type="date" value="${today}" />
+              <input id="incident_date" type="date" value="${existing ? existing.incident_date : today}" />
             </div>
             <div class="form-group">
               <label>Discovery Date *</label>
-              <input id="discovered_date" type="date" value="${today}" />
+              <input id="discovered_date" type="date" value="${existing ? existing.discovered_date : today}" />
             </div>
             <div class="form-group">
               <label>Breach Type *</label>
-              <select id="breach_type">${BREACH_TYPES.map((t)=>`<option>${t}</option>`).join('')}</select>
+              <select id="breach_type">${BREACH_TYPES.map((t)=>`<option ${existing && existing.breach_type===t?'selected':''}>${t}</option>`).join('')}</select>
             </div>
             <div class="form-group">
               <label>Root Cause *</label>
-              <select id="root_cause">${ROOT_CAUSES.map((t)=>`<option>${t}</option>`).join('')}</select>
+              <select id="root_cause">${ROOT_CAUSES.map((t)=>`<option ${existing && existing.root_cause===t?'selected':''}>${t}</option>`).join('')}</select>
             </div>
           <div class="form-group">
             <label>Business Unit Affected *</label>
-            <select id="business_unit">${units.map((t)=>`<option>${t}</option>`).join('')}</select>
+            <select id="business_unit">${units.map((t)=>`<option ${existing && existing.business_unit===t?'selected':''}>${t}</option>`).join('')}</select>
             <div class="inline" style="gap:8px;margin-top:6px;">
               <input id="new_business_unit" class="sm-input" placeholder="Add new business unit" />
               <button class="btn ghost sm" id="add-business-unit">Add</button>
@@ -1285,12 +1400,12 @@ Improvements: ${incident.improvements || 'Not documented.'}
           <div class="wire-grid impact-grid">
             <div class="form-group">
               <label>Number of Records Affected *</label>
-              <input id="affected_records" type="number" value="10" class="big-input" />
+            <input id="affected_records" type="number" value="${existing ? existing.affected_records : 10}" class="big-input" />
             </div>
             <div class="form-group">
               <label>Types of Data Exposed *</label>
               <div class="checkbox-grid">
-                ${DATA_TYPES.map((t) => checkbox(t, defaultDataTypes.includes(t))).join('')}
+              ${DATA_TYPES.map((t) => checkbox(t, existing ? existing.data_types.includes(t) : defaultDataTypes.includes(t))).join('')}
               </div>
             </div>
             <div class="form-group">
@@ -1306,7 +1421,7 @@ Improvements: ${incident.improvements || 'Not documented.'}
           <div class="wire-grid triple">
             <div class="form-group">
               <label>What happened? *</label>
-              <textarea id="description" placeholder="Describe the incident..."></textarea>
+              <textarea id="description" placeholder="Describe the incident...">${existing ? existing.description : ''}</textarea>
             </div>
             <div class="form-group">
               <label>How was it discovered?</label>
@@ -1487,7 +1602,15 @@ Improvements: ${incident.improvements || 'Not documented.'}
     const pdpcRadios = document.querySelectorAll('input[name="pdpc_required"]');
     const pdpcReviewPerson = document.getElementById('pdpc_review_person');
     pdpcRadios.forEach((r) => r.onchange = () => {
-      pdpcReviewPerson.style.display = r.value === 'review' && r.checked ? 'block' : 'none';
+      const val = r.value;
+      const requiredSelected = r.checked && val !== 'no';
+      pdpcReviewPerson.style.display = val === 'review' && r.checked ? 'block' : 'none';
+      pdpcNotifiedChk.disabled = !requiredSelected;
+      pdpcNotifiedPerson.style.display = requiredSelected && pdpcNotifiedChk.checked ? 'block' : 'none';
+      if (!requiredSelected) {
+        pdpcNotifiedChk.checked = false;
+        pdpcNotifiedPerson.value = '';
+      }
     });
     const pdpcNotifiedChk = document.getElementById('pdpc_notified');
     const pdpcNotifiedPerson = document.getElementById('pdpc_notified_person');
@@ -1525,9 +1648,9 @@ Improvements: ${incident.improvements || 'Not documented.'}
     const pdpcRequired = pdpcSelection === 'yes';
     const pdpcStatus = pdpcSelection === 'review' ? 'UNDER_REVIEW' : pdpcSelection.toUpperCase();
     const pdpcReviewPerson = document.getElementById('pdpc_review_person')?.value.trim() || '';
-    const pdpcNotified = !!document.getElementById('pdpc_notified')?.checked;
-    const pdpcNotifiedDate = document.getElementById('pdpc_notified_date')?.value || null;
-    const pdpcNotifiedPerson = document.getElementById('pdpc_notified_person')?.value.trim() || '';
+    const pdpcNotified = pdpcRequired ? !!document.getElementById('pdpc_notified')?.checked : false;
+    const pdpcNotifiedDate = pdpcRequired ? (document.getElementById('pdpc_notified_date')?.value || null) : null;
+    const pdpcNotifiedPerson = pdpcRequired ? (document.getElementById('pdpc_notified_person')?.value.trim() || '') : '';
     const dpoNotified = !!document.getElementById('dpo_notified')?.checked;
     const dpoNotifiedDate = document.getElementById('dpo_notified_date')?.value || null;
     const dpoNotifiedPerson = document.getElementById('dpo_notified_person')?.value.trim() || '';
@@ -1536,7 +1659,7 @@ Improvements: ${incident.improvements || 'Not documented.'}
       alert('Please provide the review person for PDPC status under review.');
       return;
     }
-    if (pdpcNotified && !pdpcNotifiedPerson) {
+    if (pdpcRequired && pdpcNotified && !pdpcNotifiedPerson) {
       alert('Please provide the person-in-charge for PDPC notified.');
       return;
     }
@@ -1574,7 +1697,16 @@ Improvements: ${incident.improvements || 'Not documented.'}
       preventive_measures: '',
       improvements: ''
     };
-    if (draft) {
+    if (currentEditIncidentId && !draft) {
+      const editId = currentEditIncidentId;
+      store.updateIncident(editId, payload);
+      currentEditIncidentId = null;
+      newIncidentExtras = { attachments: [], timeline: [], activities: [] };
+      setActiveView('detail-view');
+      renderIncidentDetail(editId);
+      renderDashboard();
+      renderRegistry();
+    } else if (draft) {
       const savedDraft = store.addIncident(payload, true);
       newIncidentExtras = { attachments: [], timeline: [], activities: [] };
       renderDraftOverlay(savedDraft);

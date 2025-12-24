@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BreachTracker Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/styles.css?v=12">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">BT</div>
+        <div>
+          <div class="brand-title">BreachTracker</div>
+          <div class="brand-subtitle">Incident & Compliance Control Room</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="tag tag-alert"><span aria-hidden="true">!</span> Alerts: <span id="alert-count">0</span></div>
+        <div class="tag tag-safe">PDPC-ready</div>
+        <button class="btn ghost" id="reset-data">Reset Data</button>
+        <button class="btn ghost" id="export-report">Export PDPC Report</button>
+        <button class="btn primary" id="log-incident-shortcut">+ Log Incident</button>
+      </div>
+    </header>
+
+    <nav class="nav-tabs" aria-label="Primary">
+      <button class="tab active" data-view="dashboard-view">Dashboard</button>
+      <button class="tab" data-view="registry-view">Incident Registry</button>
+      <button class="tab" data-view="new-incident-view">Log New Incident</button>
+      <button class="tab" data-view="compliance-view">Compliance</button>
+      <button class="tab" data-view="detail-view" id="detail-tab">Incident Detail</button>
+    </nav>
+
+    <main id="view-container">
+      <section id="dashboard-view" class="view active" aria-label="Breach dashboard"></section>
+      <section id="registry-view" class="view" aria-label="Incident registry"></section>
+      <section id="new-incident-view" class="view" aria-label="Log new incident"></section>
+      <section id="detail-view" class="view" aria-label="Incident detail"></section>
+      <section id="compliance-view" class="view" aria-label="Compliance dashboard"></section>
+    </main>
+  </div>
+
+  <script src="assets/app.js?v=12" defer></script>
+</body>
+</html>

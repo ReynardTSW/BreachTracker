@@ -363,6 +363,12 @@ body {
   box-shadow: var(--shadow);
 }
 
+.card.pdpc-risk {
+  border-color: rgba(248,113,113,0.5);
+  box-shadow: 0 0 0 1px rgba(248,113,113,0.2), var(--shadow);
+  background: linear-gradient(135deg, rgba(248,113,113,0.08), rgba(250,204,21,0.05));
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;

@@ -281,6 +281,7 @@
   const defaultState = {
     incidents: seedIncidents,
     drafts: [],
+    business_units: BUSINESS_UNITS,
     filters: {
       severity: 'ALL',
       unit: 'ALL',
@@ -307,6 +308,7 @@
   const ensureStateShape = (state) => ({
     incidents: Array.isArray(state.incidents) ? state.incidents : [],
     drafts: Array.isArray(state.drafts) ? state.drafts : [],
+    business_units: Array.isArray(state.business_units) && state.business_units.length ? state.business_units : BUSINESS_UNITS,
     filters: state.filters || { severity: 'ALL', unit: 'ALL', status: 'ALL', search: '' }
   });
 
@@ -349,6 +351,37 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
     }
 
+    listUnits() {
+      const fromData = [...new Set([...this.state.business_units, ...this.state.incidents.map((i) => i.business_unit), ...this.state.drafts.map((d) => d.business_unit)])];
+      return fromData;
+    }
+
+    addBusinessUnit(name) {
+      const trimmed = (name || '').trim();
+      if (!trimmed) return;
+      if (!this.state.business_units.includes(trimmed)) {
+        this.state.business_units.push(trimmed);
+        this.persist();
+      }
+    }
+
+    renameBusinessUnit(oldName, newName) {
+      const newTrim = (newName || '').trim();
+      if (!oldName || !newTrim) return;
+      this.state.business_units = this.state.business_units.map((u) => u === oldName ? newTrim : u);
+      this.state.incidents = this.state.incidents.map((i) => i.business_unit === oldName ? { ...i, business_unit: newTrim } : i);
+      this.state.drafts = this.state.drafts.map((d) => d.business_unit === oldName ? { ...d, business_unit: newTrim } : d);
+      if (this.state.filters.unit === oldName) this.state.filters.unit = newTrim;
+      this.persist();
+    }
+
+    removeBusinessUnit(name) {
+      if (!name) return;
+      this.state.business_units = this.state.business_units.filter((u) => u !== name);
+      if (this.state.filters.unit === name) this.state.filters.unit = 'ALL';
+      this.persist();
+    }
+
     withResponseTime(incident) {
       const resolvedDate = incident.resolved_date || new Date().toISOString().slice(0, 10);
       return {
@@ -360,7 +393,10 @@
     }
 
     listIncidents() {
-      return [...this.state.incidents].sort((a, b) => parseDate(b.discovered_date) - parseDate(a.discovered_date));
+      const riskFlag = (i) => (i.pdpc_notification_required || i.pdpc_status === 'UNDER_REVIEW') && (!i.pdpc_notified || !i.dpo_guidance_issued);
+      return [...this.state.incidents]
+        .sort((a, b) => parseDate(b.discovered_date) - parseDate(a.discovered_date))
+        .sort((a, b) => (riskFlag(b) ? 1 : 0) - (riskFlag(a) ? 1 : 0));
     }
 
     filterIncidents() {
@@ -399,11 +435,17 @@
         description: payload.description,
         remediation_actions: payload.remediation_actions || '',
         lessons_learned: payload.lessons_learned || '',
+        preventive_measures: payload.preventive_measures || '',
+        improvements: payload.improvements || '',
+        follow_up_actions: payload.follow_up_actions || [],
         detection_method: payload.detection_method || '',
         immediate_actions: payload.immediate_actions || '',
         pdpc_notification_required: payload.pdpc_notification_required || false,
+        pdpc_review_person: payload.pdpc_review_person || '',
         pdpc_notified: payload.pdpc_notified || false,
+        pdpc_notified_person: payload.pdpc_notified_person || '',
         dpo_guidance_issued: payload.dpo_guidance_issued || false,
+        dpo_notified_person: payload.dpo_notified_person || '',
         created_at: nowIso(),
         updated_at: nowIso(),
         created_by: payload.created_by || 'DPO Desk',
@@ -608,9 +650,9 @@
   }
 
 
-  function buildHeatmapData(incidents) {
+  function buildHeatmapData(incidents, units = store.listUnits()) {
     const weights = { CRITICAL: 5, HIGH: 3, MEDIUM: 2, LOW: 1 };
-    const units = BUSINESS_UNITS.map((unit) => {
+    const mapped = units.map((unit) => {
       const unitIncidents = incidents.filter((i) => i.business_unit === unit);
       if (!unitIncidents.length) return null;
       const score = unitIncidents.reduce((acc, i) => acc + (weights[i.severity] || 1) + (i.status !== 'RESOLVED' ? 1 : 0), 0);
@@ -618,13 +660,13 @@
       const open = unitIncidents.filter((i) => i.status !== 'RESOLVED').length;
       return { unit, count: unitIncidents.length, score, open, topSeverity, mostRecent: unitIncidents[0] };
     }).filter(Boolean);
-    const maxScore = Math.max(...units.map((u) => u.score), 1);
-    return units.map((u) => ({ ...u, fill: Math.max(8, Math.round((u.score / maxScore) * 100)) }));
+    const maxScore = Math.max(...mapped.map((u) => u.score), 1);
+    return mapped.map((u) => ({ ...u, fill: Math.max(8, Math.round((u.score / maxScore) * 100)) }));
   }
 
 
-  function buildHighRiskUnits(incidents) {
-    return BUSINESS_UNITS.map((unit) => {
+  function buildHighRiskUnits(incidents, units = store.listUnits()) {
+    return units.map((unit) => {
       const unitIncidents = incidents.filter((i) => i.business_unit === unit);
       const score = complianceScore(unitIncidents);
       const mostRecent = unitIncidents[0];
@@ -673,8 +715,9 @@ const setActiveView = (viewId) => {
     document.getElementById('alert-count').textContent = alerts;
     const trendSeries = buildTrendSeries(incidents, months);
     const rootCause = buildRootCauseSlices(incidents, months);
-    const heatmapData = buildHeatmapData(incidents);
-    const highRisk = buildHighRiskUnits(incidents);
+    const units = store.listUnits();
+    const heatmapData = buildHeatmapData(incidents, units);
+    const highRisk = buildHighRiskUnits(incidents, units);
     const trendLegend = [
       { label: 'Total', color: '#7dd3fc' },
       { label: 'Critical', color: '#f472b6' },
@@ -821,8 +864,10 @@ const setActiveView = (viewId) => {
     if (!incidents.length) {
       list.innerHTML = '<div class="card">No incidents found.</div>';
     } else {
-      list.innerHTML = incidents.map((inc) => `
-        <div class="card">
+      list.innerHTML = incidents.map((inc) => {
+        const pdpcRisk = (inc.pdpc_notification_required || inc.pdpc_status === 'UNDER_REVIEW') && (!inc.pdpc_notified || !inc.dpo_guidance_issued);
+        return `
+        <div class="card ${pdpcRisk ? 'pdpc-risk' : ''}">
           <div class="card-header">
             <div class="inline" style="gap:8px;">
               <span class="badge">${inc.incident_id}</span>
@@ -837,10 +882,11 @@ const setActiveView = (viewId) => {
           <div class="actions" style="margin-top:8px;">
             <button class="btn ghost" data-view-id="${inc.id}">View Details</button>
             <button class="btn ghost" data-note-id="${inc.id}">Add Note</button>
+            <button class="btn ghost" data-followup-id="${inc.id}">Follow-up Actions</button>
             ${inc.status!=='RESOLVED' ? `<button class="btn primary" data-resolve-id="${inc.id}">Mark Resolved</button>`:''}
           </div>
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
     }
     document.getElementById('filter-severity').onchange = (e) => { store.setFilters({ severity:e.target.value }); renderRegistry(); };
     document.getElementById('filter-unit').onchange = (e) => { store.setFilters({ unit:e.target.value }); renderRegistry(); };
@@ -934,13 +980,28 @@ Data Types: ${incident.data_types.join(', ')}
         <div class="wire-line"></div>
 
         <div class="wire-block">
+          <div class="wire-title">Follow-up Actions</div>
+          <div class="wire-list">
+            ${incident.follow_up_actions && incident.follow_up_actions.length ? incident.follow_up_actions.map((f) => `<div class="wire-item">• ${f}</div>`).join('') : '<div class="detail-subtle">No follow-up actions captured.</div>'}
+          </div>
+          <div class="inline-form" id="followup-inline-form">
+            <input id="detail-followup-text" placeholder="Add follow-up action" />
+            <button class="btn ghost sm" id="detail-add-followup">Add</button>
+          </div>
+        </div>
+
+        <div class="wire-line"></div>
+
+        <div class="wire-block">
           <div class="wire-title">Compliance Status</div>
           <div class="detail-pre">
 PDPC Notification: ${incident.pdpc_notification_required ? 'Required' : 'Not Required'}
-PDPC Status: ${incident.pdpc_status || (incident.pdpc_notification_required ? 'YES' : 'NO')}
-PDPC Notified: ${incident.pdpc_notified ? 'Yes' : 'No'} ${incident.pdpc_notified_date ? `(${formatDate(incident.pdpc_notified_date)})` : ''}
-DPO Guidance Issued: ${incident.dpo_guidance_issued ? 'Yes' : 'No'} ${incident.dpo_notified_date ? `(${formatDate(incident.dpo_notified_date)})` : ''}
+PDPC Status: ${incident.pdpc_status || (incident.pdpc_notification_required ? 'YES' : 'NO')} ${incident.pdpc_review_person ? `(${incident.pdpc_review_person})` : ''}
+PDPC Notified: ${incident.pdpc_notified ? 'Yes' : 'No'} ${incident.pdpc_notified_date ? `(${formatDate(incident.pdpc_notified_date)})` : ''} ${incident.pdpc_notified_person ? `- ${incident.pdpc_notified_person}` : ''}
+DPO Guidance Issued: ${incident.dpo_guidance_issued ? 'Yes' : 'No'} ${incident.dpo_notified_date ? `(${formatDate(incident.dpo_notified_date)})` : ''} ${incident.dpo_notified_person ? `- ${incident.dpo_notified_person}` : ''}
 Guidance: ${incident.lessons_learned || 'Not documented.'}
+Preventive Measures: ${incident.preventive_measures || 'Not documented.'}
+Improvements: ${incident.improvements || 'Not documented.'}
           </div>
         </div>
 
@@ -1046,6 +1107,16 @@ Guidance: ${incident.lessons_learned || 'Not documented.'}
         }
       };
     }
+    const addFollow = document.getElementById('detail-add-followup');
+    if (addFollow) {
+      addFollow.onclick = () => {
+        const text = document.getElementById('detail-followup-text').value;
+        if (text.trim()) {
+          store.updateIncident(id, { follow_up_actions: [...(incident.follow_up_actions || []), text.trim()] });
+          renderIncidentDetail(id);
+        }
+      };
+    }
   }
 
   function renderDraftOverlay(draft) {
@@ -1092,11 +1163,81 @@ Guidance: ${incident.lessons_learned || 'Not documented.'}
     };
   }
 
+  function renderUnitManager() {
+    const units = store.listUnits();
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Manage Business Units</div>
+          <button class="btn ghost sm" id="close-unit-modal">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-row">Existing Units:</div>
+          <div class="wire-list" id="unit-list">
+            ${units.map((u) => `
+              <div class="inline" style="gap:8px;align-items:center;margin-bottom:6px;">
+                <span>${u}</span>
+                <button class="btn ghost sm" data-rename-unit="${u}">Rename</button>
+                <button class="btn ghost sm" data-remove-unit="${u}">Remove</button>
+              </div>
+            `).join('')}
+          </div>
+          <div class="inline" style="gap:8px;align-items:center;margin-top:10px;">
+            <input id="unit-new-name" class="sm-input" placeholder="Add new unit" />
+            <button class="btn primary sm" id="unit-add-btn">Add</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const cleanup = () => overlay.remove();
+    overlay.querySelector('#close-unit-modal').onclick = cleanup;
+    overlay.querySelector('#unit-add-btn').onclick = () => {
+      const val = overlay.querySelector('#unit-new-name').value.trim();
+      if (val) {
+        store.addBusinessUnit(val);
+        cleanup();
+        renderNewIncidentForm();
+      }
+    };
+    overlay.querySelectorAll('[data-rename-unit]').forEach((btn) => {
+      btn.onclick = () => {
+        const oldName = btn.dataset.renameUnit;
+        const newName = prompt(`Rename "${oldName}" to:`, oldName);
+        if (newName && newName.trim()) {
+          store.renameBusinessUnit(oldName, newName.trim());
+          cleanup();
+          renderNewIncidentForm();
+          renderDashboard();
+          renderRegistry();
+          renderCompliance();
+        }
+      };
+    });
+    overlay.querySelectorAll('[data-remove-unit]').forEach((btn) => {
+      btn.onclick = () => {
+        const name = btn.dataset.removeUnit;
+        const confirmRemove = confirm(`Remove "${name}" from unit list? (Incidents will retain their unit value.)`);
+        if (confirmRemove) {
+          store.removeBusinessUnit(name);
+          cleanup();
+          renderNewIncidentForm();
+          renderDashboard();
+          renderRegistry();
+          renderCompliance();
+        }
+      };
+    });
+  }
+
   function renderNewIncidentForm() {
     const today = new Date().toISOString().slice(0,10);
     const container = document.getElementById('new-incident-view');
     const extras = newIncidentExtras;
     const defaultDataTypes = DATA_TYPES.slice(0, 3);
+    const units = store.listUnits();
     const checkbox = (label, checked = false) => `
       <label class="checkbox">
         <input type="checkbox" name="data_type" value="${label}" ${checked ? 'checked' : ''} />
@@ -1127,10 +1268,15 @@ Guidance: ${incident.lessons_learned || 'Not documented.'}
               <label>Root Cause *</label>
               <select id="root_cause">${ROOT_CAUSES.map((t)=>`<option>${t}</option>`).join('')}</select>
             </div>
-            <div class="form-group">
-              <label>Business Unit Affected *</label>
-              <select id="business_unit">${BUSINESS_UNITS.map((t)=>`<option>${t}</option>`).join('')}</select>
+          <div class="form-group">
+            <label>Business Unit Affected *</label>
+            <select id="business_unit">${units.map((t)=>`<option>${t}</option>`).join('')}</select>
+            <div class="inline" style="gap:8px;margin-top:6px;">
+              <input id="new_business_unit" class="sm-input" placeholder="Add new business unit" />
+              <button class="btn ghost sm" id="add-business-unit">Add</button>
+              <button class="btn ghost sm" id="manage-business-unit">Manage</button>
             </div>
+          </div>
           </div>
         </div>
 
@@ -1183,12 +1329,14 @@ Guidance: ${incident.lessons_learned || 'Not documented.'}
                 <label class="radio"><input type="radio" name="pdpc_required" value="no" /> No</label>
                 <label class="radio"><input type="radio" name="pdpc_required" value="review" /> Under Review</label>
               </div>
+              <input id="pdpc_review_person" class="sm-input" placeholder="Reviewer name" style="display:none;margin-top:6px;" />
             </div>
             <div class="form-group">
               <label>PDPC Notified?</label>
               <div class="inline" style="gap:10px;align-items:center;">
                 <label class="checkbox"><input type="checkbox" id="pdpc_notified" /> <span>Yes</span></label>
                 <input id="pdpc_notified_date" type="date" class="sm-input" />
+                <input id="pdpc_notified_person" class="sm-input" placeholder="Person notified" style="display:none;" />
               </div>
             </div>
             <div class="form-group">
@@ -1196,6 +1344,7 @@ Guidance: ${incident.lessons_learned || 'Not documented.'}
               <div class="inline" style="gap:10px;align-items:center;">
                 <label class="checkbox"><input type="checkbox" id="dpo_notified" /> <span>Yes</span></label>
                 <input id="dpo_notified_date" type="date" class="sm-input" />
+                <input id="dpo_notified_person" class="sm-input" placeholder="Person notified" style="display:none;" />
               </div>
             </div>
           </div>
@@ -1334,6 +1483,38 @@ Guidance: ${incident.lessons_learned || 'Not documented.'}
         renderExtras();
       }
     };
+
+    const pdpcRadios = document.querySelectorAll('input[name="pdpc_required"]');
+    const pdpcReviewPerson = document.getElementById('pdpc_review_person');
+    pdpcRadios.forEach((r) => r.onchange = () => {
+      pdpcReviewPerson.style.display = r.value === 'review' && r.checked ? 'block' : 'none';
+    });
+    const pdpcNotifiedChk = document.getElementById('pdpc_notified');
+    const pdpcNotifiedPerson = document.getElementById('pdpc_notified_person');
+    pdpcNotifiedChk.onchange = () => {
+      pdpcNotifiedPerson.style.display = pdpcNotifiedChk.checked ? 'block' : 'none';
+    };
+    const dpoNotifiedChk = document.getElementById('dpo_notified');
+    const dpoNotifiedPerson = document.getElementById('dpo_notified_person');
+    dpoNotifiedChk.onchange = () => {
+      dpoNotifiedPerson.style.display = dpoNotifiedChk.checked ? 'block' : 'none';
+    };
+
+    const addUnitBtn = document.getElementById('add-business-unit');
+    const newUnitInput = document.getElementById('new_business_unit');
+    if (addUnitBtn && newUnitInput) {
+      addUnitBtn.onclick = () => {
+        const val = newUnitInput.value.trim();
+        if (!val) return;
+        store.addBusinessUnit(val);
+        renderNewIncidentForm();
+        document.getElementById('business_unit').value = val;
+      };
+    }
+    const manageBtn = document.getElementById('manage-business-unit');
+    if (manageBtn) {
+      manageBtn.onclick = () => renderUnitManager();
+    }
   }
 
   function handleIncidentSubmit(draft, forcedSeverity) {
@@ -1343,10 +1524,26 @@ Guidance: ${incident.lessons_learned || 'Not documented.'}
     const pdpcSelection = document.querySelector('input[name="pdpc_required"]:checked')?.value || 'yes';
     const pdpcRequired = pdpcSelection === 'yes';
     const pdpcStatus = pdpcSelection === 'review' ? 'UNDER_REVIEW' : pdpcSelection.toUpperCase();
+    const pdpcReviewPerson = document.getElementById('pdpc_review_person')?.value.trim() || '';
     const pdpcNotified = !!document.getElementById('pdpc_notified')?.checked;
     const pdpcNotifiedDate = document.getElementById('pdpc_notified_date')?.value || null;
+    const pdpcNotifiedPerson = document.getElementById('pdpc_notified_person')?.value.trim() || '';
     const dpoNotified = !!document.getElementById('dpo_notified')?.checked;
     const dpoNotifiedDate = document.getElementById('dpo_notified_date')?.value || null;
+    const dpoNotifiedPerson = document.getElementById('dpo_notified_person')?.value.trim() || '';
+    // validation for required names
+    if (pdpcStatus === 'UNDER_REVIEW' && !pdpcReviewPerson) {
+      alert('Please provide the review person for PDPC status under review.');
+      return;
+    }
+    if (pdpcNotified && !pdpcNotifiedPerson) {
+      alert('Please provide the person-in-charge for PDPC notified.');
+      return;
+    }
+    if (dpoNotified && !dpoNotifiedPerson) {
+      alert('Please provide the person-in-charge for DPO notified.');
+      return;
+    }
     const payload = {
       incident_date: document.getElementById('incident_date').value,
       discovered_date: document.getElementById('discovered_date').value,
@@ -1363,13 +1560,19 @@ Guidance: ${incident.lessons_learned || 'Not documented.'}
       immediate_actions: document.getElementById('immediate_actions').value || '',
       pdpc_notification_required: pdpcRequired,
       pdpc_status: pdpcStatus,
+      pdpc_review_person: pdpcReviewPerson,
       pdpc_notified: pdpcNotified,
       pdpc_notified_date: pdpcNotifiedDate,
+      pdpc_notified_person: pdpcNotifiedPerson,
       dpo_guidance_issued: dpoNotified,
       dpo_notified_date: dpoNotifiedDate,
+      dpo_notified_person: dpoNotifiedPerson,
       attachments: [...newIncidentExtras.attachments],
       timeline: [...newIncidentExtras.timeline],
-      activities: [...newIncidentExtras.activities]
+      activities: [...newIncidentExtras.activities],
+      follow_up_actions: [],
+      preventive_measures: '',
+      improvements: ''
     };
     if (draft) {
       const savedDraft = store.addIncident(payload, true);
@@ -1387,7 +1590,7 @@ Guidance: ${incident.lessons_learned || 'Not documented.'}
 function renderCompliance() {
     const container = document.getElementById('compliance-view');
     const incidents = store.listIncidents();
-    const units = BUSINESS_UNITS.map((u) => {
+    const units = store.listUnits().map((u) => {
       const unitIncidents = incidents.filter((i) => i.business_unit === u);
       const score = complianceScore(unitIncidents);
       const avgResponse = averageResponse(unitIncidents);
@@ -1577,16 +1780,22 @@ function renderCompliance() {
               <div>${i.remediation_actions || 'No remediation captured.'}</div>
             </div>
             <div class="section">
+              <div class="title">Follow-up Actions</div>
+              ${renderList(i.follow_up_actions, 'No follow-up actions.')}
+            </div>
+            <div class="section">
               <div class="title">Immediate Actions</div>
               <div>${i.immediate_actions || 'Not documented.'}</div>
             </div>
             <div class="section">
               <div class="title">Compliance</div>
               <div>PDPC Notification: ${i.pdpc_notification_required ? 'Required' : 'Not Required'}</div>
-              <div>PDPC Status: ${i.pdpc_status || (i.pdpc_notification_required ? 'YES' : 'NO')}</div>
-              <div>PDPC Notified: ${i.pdpc_notified ? 'Yes' : 'No'} ${i.pdpc_notified_date ? `(${i.pdpc_notified_date})` : ''}</div>
-              <div>DPO Guidance Issued: ${i.dpo_guidance_issued ? 'Yes' : 'No'} ${i.dpo_notified_date ? `(${i.dpo_notified_date})` : ''}</div>
+              <div>PDPC Status: ${i.pdpc_status || (i.pdpc_notification_required ? 'YES' : 'NO')} ${i.pdpc_review_person ? `(${i.pdpc_review_person})` : ''}</div>
+              <div>PDPC Notified: ${i.pdpc_notified ? 'Yes' : 'No'} ${i.pdpc_notified_date ? `(${i.pdpc_notified_date})` : ''} ${i.pdpc_notified_person ? ` - ${i.pdpc_notified_person}` : ''}</div>
+              <div>DPO Guidance Issued: ${i.dpo_guidance_issued ? 'Yes' : 'No'} ${i.dpo_notified_date ? `(${i.dpo_notified_date})` : ''} ${i.dpo_notified_person ? ` - ${i.dpo_notified_person}` : ''}</div>
               <div>Guidance: ${i.lessons_learned || 'Not documented.'}</div>
+              <div>Preventive Measures: ${i.preventive_measures || 'Not documented.'}</div>
+              <div>Improvements: ${i.improvements || 'Not documented.'}</div>
             </div>
             <div class="section">
               <div class="title">Attachments (${(i.attachments || []).length})</div>
@@ -1665,6 +1874,7 @@ function renderCompliance() {
       const viewId = e.target.dataset.viewId;
       const noteId = e.target.dataset.noteId;
       const resolveId = e.target.dataset.resolveId;
+      const followId = e.target.dataset.followupId;
 
       if (viewId) {
         setActiveView('detail-view');
@@ -1678,10 +1888,33 @@ function renderCompliance() {
           if (currentDetailId === noteId) renderIncidentDetail(noteId);
         }
       }
+      if (followId) {
+        const text = prompt('Add follow-up action');
+        if (text) {
+          const target = store.getIncident ? store.getIncident(followId) : null;
+          const actions = target?.follow_up_actions || [];
+          store.updateIncident(followId, { follow_up_actions: [...actions, text] });
+          renderRegistry();
+          if (currentDetailId === followId) renderIncidentDetail(followId);
+        }
+      }
       if (resolveId) {
-        store.updateIncident(resolveId, { status: 'RESOLVED', resolved_date: new Date().toISOString().slice(0, 10) });
+        const lesson = prompt('Lessons learned (required):');
+        if (!lesson) return;
+        const preventive = prompt('Preventive measures (required):');
+        if (!preventive) return;
+        const improvements = prompt('General improvements (required):');
+        if (!improvements) return;
+        store.updateIncident(resolveId, {
+          status: 'RESOLVED',
+          resolved_date: new Date().toISOString().slice(0, 10),
+          lessons_learned: lesson,
+          preventive_measures: preventive,
+          improvements
+        });
         renderRegistry();
         renderDashboard();
+        if (currentDetailId === resolveId) renderIncidentDetail(resolveId);
       }
     });
   };

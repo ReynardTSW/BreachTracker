@@ -63,6 +63,24 @@
 
   const STATUS_ORDER = ['DRAFT','DETECTED', 'INVESTIGATING', 'CONTAINED', 'RESOLVED'];
 
+  const TRIGGER_KEYWORDS = {
+    'Phishing': ['phishing', 'spoof', 'domain', 'email'],
+    'Misconfig': ['misconfig', 'open bucket', 'public access', 'exposed', 's3'],
+    'Access Control': ['unauthorized', 'access', 'privilege', 'credential'],
+    'Patch Gap': ['unpatched', 'vulnerability', 'cve', 'patch'],
+    'Human Error': ['accidental', 'mistake', 'wrong', 'mis-sent', 'typo'],
+    'Vendor': ['vendor', 'third-party', 'supplier']
+  };
+
+  const ACTION_KEYWORDS = {
+    'Reset Credentials': ['reset password', 'reset credentials', 'lock account'],
+    'Block/Filter': ['block domain', 'block', 'filter', 'blacklist'],
+    'Patch/Fix': ['patch', 'fixed', 'update', 'upgrade'],
+    'Awareness/Training': ['train', 'awareness', 'education', 'simulate'],
+    'DLP/Controls': ['dlp', 'rule', 'control', 'mfa', '2fa'],
+    'Review/Policy': ['policy', 'review', 'procedure', 'checklist']
+  };
+
   const nowIso = () => new Date().toISOString();
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `id-${Math.random().toString(16).slice(2)}`);
 
@@ -328,6 +346,68 @@
       default:
         return '#e5e7eb';
     }
+  };
+
+  const matchKeywords = (text, map) => {
+    const lower = (text || '').toLowerCase();
+    return Object.entries(map)
+      .filter(([, keys]) => keys.some((k) => lower.includes(k)))
+      .map(([k]) => k);
+  };
+
+  const deriveTags = (incident) => {
+    const textBlob = [
+      incident.description,
+      incident.remediation_actions,
+      incident.immediate_actions,
+      incident.lessons_learned,
+      incident.preventive_measures,
+      incident.improvements,
+      (incident.follow_up_actions || []).join(' ')
+    ].join(' ').toLowerCase();
+    return {
+      triggers: matchKeywords(textBlob, TRIGGER_KEYWORDS),
+      actions: matchKeywords(textBlob, ACTION_KEYWORDS)
+    };
+  };
+
+  const aggregatePatterns = (incidents) => {
+    const counts = { triggers: {}, actions: {} };
+    const speed = {};
+    incidents.forEach((i) => {
+      const { triggers, actions } = deriveTags(i);
+      const rt = i.response_time_hours;
+      triggers.forEach((t) => {
+        counts.triggers[t] = (counts.triggers[t] || 0) + 1;
+        if (rt) {
+          speed[t] = speed[t] || [];
+          speed[t].push(rt);
+        }
+      });
+      actions.forEach((a) => {
+        counts.actions[a] = (counts.actions[a] || 0) + 1;
+        if (rt) {
+          speed[a] = speed[a] || [];
+          speed[a].push(rt);
+        }
+      });
+    });
+    const top = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const avgSpeed = (k) => {
+      if (!speed[k] || !speed[k].length) return null;
+      const s = speed[k].reduce((a, v) => a + v, 0) / speed[k].length;
+      return Number.isFinite(s) ? s : null;
+    };
+    const helpful = (type) => top(counts[type]).map(([k, v]) => ({ k, v, avg: avgSpeed(k) }));
+    return {
+      triggers: helpful('triggers'),
+      actions: helpful('actions'),
+      maxValue: Math.max(
+        1,
+        ...helpful('triggers').map((t) => t.v),
+        ...helpful('actions').map((t) => t.v)
+      )
+    };
   };
 
   class Store {
@@ -664,6 +744,25 @@
     `;
   }
 
+  function renderBarChart(items, maxValue) {
+    if (!items || !items.length) return '<div class="detail-subtle">No data yet.</div>';
+    return `
+      <div class="bar-chart">
+        ${items.map((i) => `
+          <div class="bar-row">
+            <div class="bar-row-header">
+              <div class="bar-label">${i.k || '-'}</div>
+              <div class="bar-meta">${i.k || '-'} — ${i.v} incident${i.v === 1 ? '' : 's'}${i.avg ? ` • ${i.avg.toFixed(1)}h` : ''}</div>
+            </div>
+            <div class="bar-track">
+              <div class="bar-fill" style="width:${Math.max(8, (i.v / maxValue) * 100)}%"></div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
 
   function buildHeatmapData(incidents, units = store.listUnits()) {
     const weights = { CRITICAL: 5, HIGH: 3, MEDIUM: 2, LOW: 1 };
@@ -830,6 +929,19 @@ const setActiveView = (viewId) => {
               `).join('') : '<tr><td colspan="4" class="muted">No units under 70 right now.</td></tr>'}
             </tbody>
           </table>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Pattern Signals</div>
+        <div class="grid grid-2">
+          <div class="pattern-chart">
+            <div class="mini-title">Top Triggers</div>
+            ${renderBarChart(aggregatePatterns(incidents).triggers, aggregatePatterns(incidents).maxValue)}
+          </div>
+          <div class="pattern-chart">
+            <div class="mini-title">Top Actions</div>
+            ${renderBarChart(aggregatePatterns(incidents).actions, aggregatePatterns(incidents).maxValue)}
+          </div>
         </div>
       </div>
     `;

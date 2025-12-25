@@ -31,6 +31,7 @@ body {
               var(--bg);
   color: var(--text);
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 .success-text { color: var(--success); }
@@ -165,6 +166,11 @@ body {
 
 .view.active {
   display: block;
+}
+
+#dashboard-view {
+  position: relative;
+  overflow: hidden;
 }
 
 .panel {
@@ -641,7 +647,7 @@ body {
   position: relative;
 }
 
-.bar-label {
+.heatbar .bar-label {
   position: absolute;
   right: 10px;
   top: 50%;
@@ -722,6 +728,7 @@ body {
   border: 1px dashed var(--border);
   border-radius: 12px;
   padding: 12px;
+  overflow: hidden;
 }
 
 .chart svg {
@@ -946,22 +953,29 @@ body {
   gap: 10px;
   margin-top: 6px;
   width: 100%;
+  max-width: 100%;
+  position: relative;
+  overflow: hidden;
 }
 
 .bar-row {
   display: grid;
   gap: 6px;
+  overflow: hidden;
+  width: 100%;
 }
 
 .bar-label {
   font-size: 13px;
   color: var(--text);
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bar-row-header {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 200px);
   gap: 8px;
   align-items: center;
 }
@@ -984,8 +998,14 @@ body {
   color: var(--muted);
   text-align: right;
   white-space: nowrap;
+  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.pattern-chart {
+  overflow: hidden;
 }
 
 .wire-item {

@@ -2131,7 +2131,7 @@ function renderCompliance() {
         <div class="panel-header">
           <div>
             <div class="panel-title">Recurring Vulnerability Classes</div>
-            <div class="muted small">Pattern detection surfaces five recurring classes and their loss frequency share across all incidents.</div>
+            <div class="muted small">Pattern detection surfaces five recurring classes and their loss frequency share to support reporting and target training initiatives.</div>
           </div>
         </div>
         <div class="table-wrap">

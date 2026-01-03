@@ -13,7 +13,7 @@ Lightweight, front-end incident and compliance control room for practicing data 
 - **Log New Incident**: Guided form with business unit selection/management, data-type tagging, auto severity suggestion, PDPC/DPO fields, and draft/save.
 - **Incident Detail**: Timeline, activity log, attachments, remediation, lessons learned, preventive measures, and improvements.
 - **Compliance Board**: Per-business-unit scores, trends, average response, critical counts, recommended actions, and maturity bars.
-- **Pattern Signals**: Auto-detects recurring vulnerability classes (phishing, access misconfig, access control, patch gaps, vendor/human error) and top triggers/actions across all incidents to guide risk oversight.
+- **Pattern Signals**: Auto-detects recurring vulnerability classes (phishing, access misconfig, access control, patch gaps, vendor/human error) and top triggers/actions across all incidents to guide risk oversight, reporting, and targeted training initiatives.
 - **SQL Analytics**: In-browser SQL runner (AlaSQL) with prebuilt queries that shrink compliance reporting from hours to minutes; run ad-hoc queries without a backend and export the snapshot.
 - **Exports**: Generate PDPC/Audit HTML reports or compliance summaries with full audit trails (timeline, compliance changes, field change history) for sharing and loss-frequency modeling.
 - **Persistence**: Uses browser `localStorage`; includes seeded sample incidents to explore the UI. `Reset Data` restores the seed set.

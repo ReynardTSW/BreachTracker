@@ -13,11 +13,13 @@ Lightweight, front-end incident and compliance control room for practicing data 
 - **Log New Incident**: Guided form with business unit selection/management, data-type tagging, auto severity suggestion, PDPC/DPO fields, and draft/save.
 - **Incident Detail**: Timeline, activity log, attachments, remediation, lessons learned, preventive measures, and improvements.
 - **Compliance Board**: Per-business-unit scores, trends, average response, critical counts, recommended actions, and maturity bars.
-- **Exports**: Generate a PDPC/Audit HTML report or compliance summary for sharing.
+- **Pattern Signals**: Auto-detects recurring vulnerability classes (phishing, access misconfig, access control, patch gaps, vendor/human error) and top triggers/actions across all incidents to guide risk oversight.
+- **SQL Analytics**: In-browser SQL runner (AlaSQL) with prebuilt queries that shrink compliance reporting from hours to minutes; run ad-hoc queries without a backend and export the snapshot.
+- **Exports**: Generate PDPC/Audit HTML reports or compliance summaries with full audit trails (timeline, compliance changes, field change history) for sharing and loss-frequency modeling.
 - **Persistence**: Uses browser `localStorage`; includes seeded sample incidents to explore the UI. `Reset Data` restores the seed set.
 
 ## Tech stack
-- Static HTML/CSS/JS (no build step, no backend).
+- Static HTML/CSS/JS (no build step, no backend) with AlaSQL loaded in-browser for SQL analytics.
 - State stored in-browser via `localStorage`.
 - Optional PostgreSQL-ready schema included in `schema.sql` if you want to wire a backend later.
 
@@ -36,6 +38,7 @@ If you prefer, open `index.html` directly in a browser (no dependencies).
 - **Manage units**: Add/rename/remove business units from the form controls.
 - **Resolve**: From registry or detail view, mark resolved and capture lessons learned, preventive measures, and improvements.
 - **Compliance**: Review per-unit scores and recommended actions; export data for reporting.
+- **SQL Fast Lane**: In the Compliance tab, pick a sample SQL (coverage, throughput, audit trail), run it or paste your own, and export the results—powered by AlaSQL in-browser.
 - **Export**: Top-right “Export PDPC Report” or Compliance export generates downloadable HTML summaries.
 - **Reset**: “Reset Data” clears local changes and reloads the seeded set.
 

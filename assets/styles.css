@@ -440,6 +440,17 @@ body {
   resize: vertical;
 }
 
+.sql-area {
+  font-family: var(--mono);
+  min-height: 140px;
+}
+
+.sql-meta {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 6px 0 12px;
+}
+
 .form-shell {
   border: 1px solid var(--border);
 }
